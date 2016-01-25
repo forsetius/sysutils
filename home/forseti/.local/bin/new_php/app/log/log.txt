@@ -1,0 +1,10 @@
+Modify "Hyperion" "Sol/Saturn"
+{
+	Texture "JVV_Hyperion.png"
+}
+
+AltSurface "tytuł" "Sol/Saturn/Hyperion"
+{
+	Texture "JVV_HyperionLOK.png"
+	
+}

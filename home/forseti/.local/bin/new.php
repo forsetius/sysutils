@@ -1,25 +1,21 @@
 #!/usr/bin/php
 <?php
-	$ret = 0;
-	$project = system('yad --width 400 --entry --title "Nowy projekt PHP" --button="gtk-ok:0" --button="gtk-cancel:1" --text "Podaj nazwę projektu"', $ret);
-	if ($ret != 0) {
-		echo $ret."\n";
-		exit;
-	}
+	if (count($argv) != 2) die('Skrypt wymaga jednego parametru - nazwy projektu');
+	$project = $argv[1];
 
 	$vhost		= '/etc/httpd/vhosts/' . $project . '.conf';
-	//$vhostLink	= str_replace('available','enabled',$vhost);
 	$syncDir	= '/home/forseti/Sync/Projekty/' . $project;
 	$projDir	= '/home/forseti/Dokumenty/Kod/PHP/' . $project;
 	$docRoot	= '/var/www/html/' . $project;
+	$hosts		= '/etc/hosts.d/' . $project . 'conf';
 
 	// Sprawdzamy
 	$checks = array(
 		['makeVhost', $vhost, 'Virtual host '],
-		/* ['makeVhostLink', $vhostLink, 'Link do vhosta '], */
 		['makeSyncDir', $syncDir, 'Katalog synchronizowany '],
 		['makeProjDir', $projDir, 'Katalog projektu '],
-		['makeDocRoot', $docRoot, 'Link do Apache documentRoot ']
+		['makeDocRoot', $docRoot, 'Link do Apache documentRoot '],
+		['makeHostFile', $hosts, 'Plik hosts dla ']
 		);
 
 	foreach($checks as list($proc,$path,$msg)) {
@@ -48,33 +44,34 @@ function makeVhost() {
 
 	<Directory $docRoot/web>
 		Options Indexes FollowSymlinks Multiviews
-		AllowOverride None
+		AllowOverride All
 		Order allow,deny
 		allow from all
 	</Directory>
 
-	ErrorLog \${APACHE_LOG_DIR}/error.log
-	CustomLog \${APACHE_LOG_DIR}/access.log combined
+	ErrorLog /var/www/html/$project/app/log/error.log
+    CustomLog /var/www/html/$project/app/log/access.log combined
 
-	#Include conf-available/serve-cgi-bin.conf
+    php_flag log_errors on
+    php_flag display_errors on
+    php_value error_reporting 2147483647
+    php_value error_log /var/www/html/$project/app/log/php.error.log
+
 </VirtualHost>
 EOT
 	);
-}
-
-function makeVhostLink() {
-global $vhost, $vhostLink;
-
-	symlink($vhost, $vhostLink);
 }
 
 function makeSyncDir() {
 global $syncDir;
 
 	// Stwórz katalog projektu w /home/user
-	mkdir($syncDir . '/web', 0755, true);
-	copy('new_php/index.php', $syncDir . '/web/index.php');
-	system("chown -R forseti:forseti $syncDir");
+	mkdir($syncDir, 0755);
+	exec("cp -r new_php/* $syncDir");
+	system("chown -R forseti:apache $syncDir");
+	system("chmod 0755 $syncDir/app/log");
+	system('semanage fcontext -a -t httpd_sys_rw_content_t "'. $syncDir .'/app/log(/.*)?"');
+	system("restorecon -R $syncDir/app/log");
 }
 
 function makeProjDir() {
@@ -90,13 +87,22 @@ global $vhost, $vhostLink, $syncDir, $projDir, $docRoot;
 	symlink($syncDir, $docRoot);
 }
 
+function makeHostFile() {
+global $project;
+
+	$data = '';
+	foreach ([11,12] as $host) {
+		$data .= "192.168.8.$host    $project.forseti.home\n";
+	}
+	
+	file_put_contents("/etc/hosts.d/$project.conf", $data );
+	exec('/etc/hosts.d/make_hosts.sh');
+}
+
 function checkDomain($project) {
 
-	// dopisz do /etc/hosts nową domenę dla vhosta
-	file_put_contents('/etc/hosts', '192.168.8.11    ' . $project . ".forseti.home\n", FILE_APPEND);
-
 	// zresetuj Apache'a
-	exec('service apache2 restart');
+	exec('systemctl restart httpd.service');
 
 	// sprawdzamy
 	$cH = curl_init('http://'. $project .'.forseti.home');
